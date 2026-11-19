@@ -1,13 +1,7 @@
 # Spanish Cita Monitor
 
-Checks Spain's immigration appointment portal (cita previa extranjería) for
-free appointments and reports one clear outcome per run.
-
-Default search: **Alicante → CNP Comisaría Provincial, C/ Isabel la Católica, 25 →
-POLICIA-CARTA DE INVITACIÓN**, presented *sin Cl@ve*.
-
-It only **checks** availability; it never books. Telegram notifications are
-planned but not implemented yet.
+Checks Spain's immigration appointment portal for invitation-letter appointment availability.
+Default: Alicante → CNP Comisaría Provincial → POLICIA-CARTA DE INVITACIÓN.
 
 ## Setup
 
@@ -16,59 +10,47 @@ Install [uv](https://docs.astral.sh/uv/), then:
 ```bash
 uv sync
 uv run playwright install chromium
-cp .env.example .env   # then fill in your document number and full name
+cp .env.example .env
+# Fill in the applicant document number and name.
+```
+
+## Browser backends
+
+The existing Playwright backend remains the default:
+
+```bash
 uv run cita-monitor
 ```
 
-`.env` holds personal data and is gitignored — never commit it.
+To experiment with the Selenium-compatible `undetected-chromedriver` backend:
 
-## What a run does
+```bash
+uv run cita-monitor --browser uc
+```
 
-1. Opens `https://icp.administracionelectronica.gob.es/icpco/index` and picks the province.
-2. Picks the office (this reloads the page via `/icpco/selectSede`) and the procedure.
-3. Clicks **Presentación sin Cl@ve**.
-4. Fills document type, document number and *Nombre y apellidos*, then **Aceptar**.
-5. Clicks **Solicitar Cita** and reads the result page.
+The experimental backend requires a locally installed Google Chrome. It uses the
+standard WebDriver API to navigate the same workflow. No CAPTCHA solving,
+fingerprint configuration, or access-control bypass logic is implemented.
+If the portal rejects the session, it reports `BLOCKED` and stops.
 
-It pauses a random 4–8 s between steps (`CITA_STEP_DELAY_MIN/MAX`).
+The run does **not** book an appointment or send Telegram notifications.
+Personal details belong in the gitignored `.env` file.
 
 ## Outcomes
 
-Each run logs `OUTCOME=...` and exits with a matching code:
-
 | Outcome | Exit | Meaning |
 |---|---|---|
-| `NO_APPOINTMENTS` | 0 | Reached the result page; "no hay citas disponibles" |
-| `APPOINTMENTS_FOUND` | 10 | Reached the result page and it did not say "no hay citas" |
-| `BLOCKED` | 20 | Bot-protection rejection ("The requested URL was rejected") or blank challenge page |
-| `PORTAL_ERROR` | 21 | Portal's own "Se ha producido un error en el sistema" page |
-| `UNAVAILABLE` | 22 | Timeout / site down |
-| `FLOW_CHANGED` | 30 | An expected dropdown/button was missing — markup may have changed |
+| `NO_APPOINTMENTS` | 0 | Explicit no-availability text |
+| `APPOINTMENTS_FOUND` | 10 | Positive signal (not yet validated in the UC backend) |
+| `BLOCKED` | 20 | Portal access rejection |
+| `PORTAL_ERROR` | 21 | Government portal error |
+| `UNAVAILABLE` | 22 | Timeout or browser failure |
+| `FLOW_CHANGED` | 30 | Missing selector or unrecognized result |
 
-Anything other than `NO_APPOINTMENTS` saves a screenshot and HTML to `debug/`.
-
-## Portal notes (verified 2026-11-19)
-
-- `/icpco/acInfo` cannot be opened directly; it returns the generic error page.
-- Province: `select#form` (label *PROVINCIAS DISPONIBLES*). Alicante → `/icpco/citar?p=3`.
-- Office: `select#sede` (Comisaría Provincial = value `13`). Changing it submits
-  the form; afterwards the procedure list is re-rendered as `tramiteGrupo[0]`
-  (CARTA DE INVITACIÓN = value `4037`).
-- *sin Cl@ve*: `#btnEntrar`.
-- Applicant form (`/icpco/acEntrada`): `#rdbTipoDocNie|Dni|Pas`, `#txtIdCitado`,
-  `#txtDesCitado`, submit `#btnEnviar`.
-- **Not yet confirmed:** the *Solicitar Cita* page and the result page. The
-  availability check currently treats any result page without "no hay citas
-  disponibles" as `APPOINTMENTS_FOUND`.
-- The info page states this procedure at this office is only for people
-  *empadronados* in Alicante capital / the Comisaría Provincial area.
-
-### Bot protection
-
-The site is behind F5 bot protection (`/TSPD/` scripts). Automated runs are
-frequently rejected at a random step, more so after many runs in a short time.
-This project does **not** try to evade or bypass it — a rejection is reported as
-`BLOCKED`. Keep the run frequency low (every 30–60 minutes or less).
+The UC backend intentionally returns `FLOW_CHANGED` for an unrecognized result,
+not `APPOINTMENTS_FOUND`. Screenshots and HTML of unexpected pages are saved to
+the gitignored `debug/` folder. Those files may contain applicant data: do not
+share them publicly.
 
 ## Development
 
@@ -77,13 +59,5 @@ uv run pytest
 uv run ruff check .
 ```
 
-## Project layout
-
-```text
-src/cita_monitor/
-  config.py    Settings from env / .env (CITA_* variables)
-  flow.py      Portal walk-through and page classification
-  outcome.py   Outcome enum and exit codes
-  main.py      CLI entry point (`cita-monitor`)
-tests/         Unit tests
-```
+The experimental backend has not been verified against the live portal. Keep
+checks infrequent and stop when access is rejected.
