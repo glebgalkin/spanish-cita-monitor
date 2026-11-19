@@ -5,6 +5,7 @@ import random
 from datetime import datetime
 from pathlib import Path
 
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Locator, Page, sync_playwright
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
@@ -187,6 +188,9 @@ def run_check(settings: Settings) -> RunResult:
             result = stop.result
         except PlaywrightTimeoutError as exc:
             result = RunResult(Outcome.UNAVAILABLE, f"Timed out: {exc.message}", flow.step)
+        except PlaywrightError as exc:
+            # Network/TLS failures (e.g. net::ERR_CERT_AUTHORITY_INVALID) are portal-side.
+            result = RunResult(Outcome.UNAVAILABLE, exc.message.splitlines()[0], flow.step)
         try:
             if result.outcome is not Outcome.NO_APPOINTMENTS and (
                 stem := save_debug(page, settings, result)

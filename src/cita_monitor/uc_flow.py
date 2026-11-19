@@ -6,6 +6,8 @@ spoofing, challenge solving, or retries after access rejection.
 
 import logging
 import random
+import re
+import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
@@ -160,13 +162,27 @@ def save_debug(driver, settings, result):
         LOGGER.warning("Could not save debug snapshot", exc_info=True)
 
 
+CHROME_BINARY = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+
+
+def installed_chrome_major() -> int | None:
+    """Major version of the local Chrome, so the patched driver matches it."""
+    try:
+        out = subprocess.run([CHROME_BINARY, "--version"], capture_output=True,
+                             text=True, timeout=10, check=False).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    match = re.search(r"(\d+)\.\d+\.\d+", out)
+    return int(match.group(1)) if match else None
+
+
 def run_check(settings: Settings) -> RunResult:
     options = uc.ChromeOptions()
     if settings.headless:
         options.add_argument("--headless=new")
     driver = None
     try:
-        driver = uc.Chrome(options=options)
+        driver = uc.Chrome(options=options, version_main=installed_chrome_major())
         driver.set_page_load_timeout(30)
         flow = SeleniumFlow(driver, settings)
         try:
