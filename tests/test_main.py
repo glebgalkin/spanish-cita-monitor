@@ -44,9 +44,9 @@ def test_settings_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.procedure == "POLICIA-CARTA DE INVITACIÓN"
 
 
-def test_start_delay_defaults_to_zero(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_start_delay_defaults_to_one_to_five_minutes(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("CITA_START_DELAY_MIN", raising=False)
     monkeypatch.delenv("CITA_START_DELAY_MAX", raising=False)
     settings = Settings(_env_file=None, document_number="X", full_name="Y")
-    assert settings.start_delay_min == 0
-    assert settings.start_delay_max == 0
+    assert settings.start_delay_min == 60
+    assert settings.start_delay_max == 300

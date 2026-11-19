@@ -34,9 +34,9 @@ class Settings(BaseSettings):
     step_delay_min: float = 4.0
     step_delay_max: float = 8.0
     # Random wait before the run starts, in seconds, so scheduled runs don't hit
-    # the portal at exact clock times. 0/0 (default) = start immediately.
-    start_delay_min: float = 0.0
-    start_delay_max: float = 0.0
+    # the portal at exact clock times. Set CITA_START_DELAY_MAX=0 to start immediately.
+    start_delay_min: float = 60.0
+    start_delay_max: float = 300.0
     # Where screenshots/HTML of unexpected pages are saved for debugging.
     debug_dir: str = "debug"
 

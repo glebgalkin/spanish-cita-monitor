@@ -67,10 +67,10 @@ chmod 600 /root/spanish-cita-monitor/.env /root/spanish-cita-monitor/telegram_ch
 ## 5. Run a check
 
 ```bash
-cd ~/spanish-cita-monitor && xvfb-run uv run cita-monitor
+cd ~/spanish-cita-monitor && CITA_START_DELAY_MAX=0 xvfb-run uv run cita-monitor
 ```
 
-Expect `OUTCOME=NO_APPOINTMENTS` (or another outcome) and `Telegram report sent to 1/1 chats`.
+`CITA_START_DELAY_MAX=0` skips the default 1–5 minute wait for this manual run. Expect `OUTCOME=NO_APPOINTMENTS` (or another outcome) and `Telegram report sent to 1/1 chats`.
 
 ## 6. Schedule (cron, every 15 minutes)
 
@@ -78,17 +78,15 @@ As root:
 
 ```bash
 (crontab -l 2>/dev/null; cat <<'EOF'
-CITA_START_DELAY_MIN=60
-CITA_START_DELAY_MAX=300
-*/15 * * * * cd /root/spanish-cita-monitor && flock -n /tmp/cita-monitor.lock xvfb-run -a /root/.local/bin/uv run cita-monitor >> /root/cita-monitor.log 2>&1
+*/15 * * * * cd /root/spanish-cita-monitor && xvfb-run -a /root/.local/bin/uv run cita-monitor >> /root/cita-monitor.log 2>&1
 0 4 * * * find /root/spanish-cita-monitor/debug -type f -mtime +3 -delete
 EOF
 ) | crontab -
 ```
 
 - Cron starts a run every 15 minutes; the script then waits a random 1–5 minutes
-  (`CITA_START_DELAY_MIN/MAX`) before checking. Output goes to `/root/cita-monitor.log`.
-- `flock -n` skips a run if the previous one is still going.
+  (default `CITA_START_DELAY_MIN/MAX`) before checking. Output goes to `/root/cita-monitor.log`.
+- `uv` needs its full path because cron doesn't load `~/.local/bin` into `PATH`.
 - Debug snapshots (they contain applicant data) are deleted after 3 days.
 
 Check with `crontab -l` and `tail -f /root/cita-monitor.log`. Stop with `crontab -r`.
