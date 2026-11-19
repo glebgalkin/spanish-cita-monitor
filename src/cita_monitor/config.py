@@ -2,6 +2,7 @@
 
 from enum import StrEnum
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -34,3 +35,15 @@ class Settings(BaseSettings):
     step_delay_max: float = 8.0
     # Where screenshots/HTML of unexpected pages are saved for debugging.
     debug_dir: str = "debug"
+
+    # Telegram report after every run, sent to every chat registered with
+    # `cita-register`. No token or no registered chats = no report is sent.
+    telegram_bot_token: SecretStr | None = None
+    telegram_chats_file: str = "telegram_chats.json"
+    # Comma-separated Telegram usernames (without @) that `cita-register` accepts.
+    telegram_allowed_usernames: str = ""
+
+    @property
+    def allowed_usernames(self) -> set[str]:
+        return {name.strip().lstrip("@").lower()
+                for name in self.telegram_allowed_usernames.split(",") if name.strip()}

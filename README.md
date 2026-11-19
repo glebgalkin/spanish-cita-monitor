@@ -29,8 +29,21 @@ uv run cita-monitor
 3. Clicks **Presentación sin Cl@ve**.
 4. Fills document type, document number and *Nombre y apellidos*, then **Aceptar**.
 5. Clicks **Solicitar Cita** and reads the result page.
+6. Sends the outcome to every registered Telegram chat (see below).
 
 It pauses a random 4–8 s between steps (`CITA_STEP_DELAY_MIN/MAX`).
+
+## Telegram reports
+
+1. Set `CITA_TELEGRAM_BOT_TOKEN` and `CITA_TELEGRAM_ALLOWED_USERNAMES` (comma-separated,
+   without `@`) in `.env`.
+2. Each recipient opens the bot in Telegram and sends `/start`.
+3. Run `uv run cita-register`. Allowlisted users are saved to the gitignored
+   `telegram_chats.json` and get a confirmation message; anyone else is logged and ignored.
+
+Every run then reports to all registered chats. `APPOINTMENTS_FOUND` and `FLOW_CHANGED`
+notify with sound; other outcomes arrive silently. Reports never include the applicant's
+document number or name. Copy `telegram_chats.json` along with `.env` when deploying.
 
 ## Outcomes
 
@@ -85,5 +98,7 @@ src/cita_monitor/
   flow.py      Portal walk-through and page classification
   outcome.py   Outcome enum and exit codes
   main.py      CLI entry point (`cita-monitor`)
+  notify.py    Telegram report formatting and sending
+  register.py  Registers Telegram chats that sent /start (`cita-register`)
 tests/         Unit tests
 ```

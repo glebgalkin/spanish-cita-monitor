@@ -6,6 +6,7 @@ from pydantic import ValidationError
 
 from cita_monitor.config import Settings
 from cita_monitor.flow import run_check
+from cita_monitor.notify import send_report
 from cita_monitor.outcome import Outcome
 
 LOGGER = logging.getLogger("cita_monitor")
@@ -13,6 +14,8 @@ LOGGER = logging.getLogger("cita_monitor")
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    # httpx logs every request URL at INFO, and Telegram URLs contain the bot token.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     try:
         settings = Settings()
     except ValidationError as exc:
@@ -23,6 +26,7 @@ def main() -> None:
     result = run_check(settings)
     level = logging.WARNING if result.outcome is Outcome.APPOINTMENTS_FOUND else logging.INFO
     LOGGER.log(level, "OUTCOME=%s step=%s detail=%s", result.outcome, result.step, result.detail)
+    send_report(result, settings)
     raise SystemExit(result.outcome.exit_code)
 
 

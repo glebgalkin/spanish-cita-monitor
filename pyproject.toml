@@ -12,11 +12,11 @@ dependencies = [
   "playwright>=1.50,<2",
   "httpx>=0.28,<1",
   "pydantic-settings>=2.7,<3",
-  "python-telegram-bot>=22,<23",
 ]
 
 [project.scripts]
 cita-monitor = "cita_monitor.main:main"
+cita-register = "cita_monitor.register:main"
 
 [dependency-groups]
 dev = ["pytest>=8,<10", "ruff>=0.9,<1"]
