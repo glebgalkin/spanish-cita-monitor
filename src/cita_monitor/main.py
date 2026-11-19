@@ -1,56 +1,29 @@
-"""Open the appointment portal and inspect its province selector."""
+"""Command-line entry point: run one availability check and report the outcome."""
 
 import logging
 
-from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
-from playwright.sync_api import sync_playwright
+from pydantic import ValidationError
 
-LOGGER = logging.getLogger(__name__)
-URL = "https://icp.administracionelectronica.gob.es/icpco/acInfo"
+from cita_monitor.config import Settings
+from cita_monitor.flow import run_check
+from cita_monitor.outcome import Outcome
 
-
-def inspect_provinces() -> list[str]:
-    """Return visible options from the province selector, if available."""
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=False)
-        try:
-            page = browser.new_page(locale="es-ES")
-            LOGGER.info("Opening %s", URL)
-            page.goto(URL, wait_until="domcontentloaded", timeout=30_000)
-
-            # Prefer the accessible label; fall back to nearby form controls.
-            selector = page.get_by_label("PROVINCIAS DISPONIBLES", exact=False)
-            if selector.count() == 0:
-                selector = page.locator("select").first
-
-            try:
-                selector.wait_for(state="visible", timeout=15_000)
-            except PlaywrightTimeoutError as exc:
-                raise RuntimeError(
-                    "Province selector was not found. Inspect the open page: "
-                    "the portal may have changed or displayed an access challenge."
-                ) from exc
-
-            if selector.evaluate("(el) => el.tagName.toLowerCase()") != "select":
-                raise RuntimeError("Found a labeled element, but it is not a select dropdown.")
-
-            options = [value.strip() for value in selector.locator("option").all_text_contents()]
-            LOGGER.info("Province dropdown found (%d options)", len(options))
-            for option in options:
-                LOGGER.info("  %s", option)
-            page.wait_for_timeout(5_000)
-            return options
-        finally:
-            browser.close()
+LOGGER = logging.getLogger("cita_monitor")
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     try:
-        inspect_provinces()
-    except Exception:
-        LOGGER.exception("Could not inspect province options")
-        raise SystemExit(1) from None
+        settings = Settings()
+    except ValidationError as exc:
+        LOGGER.error("Invalid configuration (see .env.example):\n%s", exc)
+        raise SystemExit(2) from None
+
+    LOGGER.info("Checking %s / %s / %s", settings.province, settings.office, settings.procedure)
+    result = run_check(settings)
+    level = logging.WARNING if result.outcome is Outcome.APPOINTMENTS_FOUND else logging.INFO
+    LOGGER.log(level, "OUTCOME=%s step=%s detail=%s", result.outcome, result.step, result.detail)
+    raise SystemExit(result.outcome.exit_code)
 
 
 if __name__ == "__main__":

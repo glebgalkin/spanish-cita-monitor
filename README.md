@@ -1,23 +1,74 @@
 # Spanish Cita Monitor
 
-A small Python project for inspecting Spain's immigration appointment portal.
+Checks Spain's immigration appointment portal (cita previa extranjería) for
+free appointments and reports one clear outcome per run.
+
+Default search: **Alicante → CNP Comisaría Provincial, C/ Isabel la Católica, 25 →
+POLICIA-CARTA DE INVITACIÓN**, presented *sin Cl@ve*.
+
+It only **checks** availability; it never books. Telegram notifications are
+planned but not implemented yet.
 
 ## Setup
 
-Install [uv](https://docs.astral.sh/uv/), then run:
+Install [uv](https://docs.astral.sh/uv/), then:
 
 ```bash
 uv sync
 uv run playwright install chromium
+cp .env.example .env   # then fill in your document number and full name
 uv run cita-monitor
 ```
 
-The command launches a **visible** Chromium browser, visits the appointment portal,
-looks for the **PROVINCIAS DISPONIBLES** dropdown, and logs its options.
-It does **not** select a province, submit forms, book appointments, or send Telegram messages.
+`.env` holds personal data and is gitignored — never commit it.
 
-If the portal shows a challenge or changes its markup, the command may fail with
-a descriptive error. No attempt is made to bypass access controls.
+## What a run does
+
+1. Opens `https://icp.administracionelectronica.gob.es/icpco/index` and picks the province.
+2. Picks the office (this reloads the page via `/icpco/selectSede`) and the procedure.
+3. Clicks **Presentación sin Cl@ve**.
+4. Fills document type, document number and *Nombre y apellidos*, then **Aceptar**.
+5. Clicks **Solicitar Cita** and reads the result page.
+
+It pauses a random 4–8 s between steps (`CITA_STEP_DELAY_MIN/MAX`).
+
+## Outcomes
+
+Each run logs `OUTCOME=...` and exits with a matching code:
+
+| Outcome | Exit | Meaning |
+|---|---|---|
+| `NO_APPOINTMENTS` | 0 | Reached the result page; "no hay citas disponibles" |
+| `APPOINTMENTS_FOUND` | 10 | Reached the result page and it did not say "no hay citas" |
+| `BLOCKED` | 20 | Bot-protection rejection ("The requested URL was rejected") or blank challenge page |
+| `PORTAL_ERROR` | 21 | Portal's own "Se ha producido un error en el sistema" page |
+| `UNAVAILABLE` | 22 | Timeout / site down |
+| `FLOW_CHANGED` | 30 | An expected dropdown/button was missing — markup may have changed |
+
+Anything other than `NO_APPOINTMENTS` saves a screenshot and HTML to `debug/`.
+
+## Portal notes (verified 2026-11-19)
+
+- `/icpco/acInfo` cannot be opened directly; it returns the generic error page.
+- Province: `select#form` (label *PROVINCIAS DISPONIBLES*). Alicante → `/icpco/citar?p=3`.
+- Office: `select#sede` (Comisaría Provincial = value `13`). Changing it submits
+  the form; afterwards the procedure list is re-rendered as `tramiteGrupo[0]`
+  (CARTA DE INVITACIÓN = value `4037`).
+- *sin Cl@ve*: `#btnEntrar`.
+- Applicant form (`/icpco/acEntrada`): `#rdbTipoDocNie|Dni|Pas`, `#txtIdCitado`,
+  `#txtDesCitado`, submit `#btnEnviar`.
+- **Not yet confirmed:** the *Solicitar Cita* page and the result page. The
+  availability check currently treats any result page without "no hay citas
+  disponibles" as `APPOINTMENTS_FOUND`.
+- The info page states this procedure at this office is only for people
+  *empadronados* in Alicante capital / the Comisaría Provincial area.
+
+### Bot protection
+
+The site is behind F5 bot protection (`/TSPD/` scripts). Automated runs are
+frequently rejected at a random step, more so after many runs in a short time.
+This project does **not** try to evade or bypass it — a rejection is reported as
+`BLOCKED`. Keep the run frequency low (every 30–60 minutes or less).
 
 ## Development
 
@@ -26,13 +77,13 @@ uv run pytest
 uv run ruff check .
 ```
 
-Python 3.12 is the default. Dependencies include Playwright, HTTPX,
-pydantic-settings, and python-telegram-bot (reserved for later work).
-
 ## Project layout
 
 ```text
-src/cita_monitor/   Application code
-tests/              Tests
-pyproject.toml       Package and dependency configuration
+src/cita_monitor/
+  config.py    Settings from env / .env (CITA_* variables)
+  flow.py      Portal walk-through and page classification
+  outcome.py   Outcome enum and exit codes
+  main.py      CLI entry point (`cita-monitor`)
+tests/         Unit tests
 ```
