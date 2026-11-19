@@ -17,6 +17,8 @@ ENTRY_URL = "https://icp.administracionelectronica.gob.es/icpco/index"
 
 REJECTED_TEXT = "The requested URL was rejected"
 PORTAL_ERROR_TEXT = "Se ha producido un error en el sistema"
+# The portal sometimes drops the session mid-flow and resets to its start page.
+SESSION_EXPIRED_TEXT = "Su sesión ha caducado"
 NO_APPOINTMENTS_TEXT = "no hay citas disponibles"
 
 DOCUMENT_RADIOS = {
@@ -40,7 +42,7 @@ def classify_blocking_page(body_text: str, html: str) -> Outcome | None:
         return Outcome.BLOCKED
     if not body_text.strip() and "/TSPD/" in html:
         return Outcome.BLOCKED
-    if PORTAL_ERROR_TEXT in body_text:
+    if PORTAL_ERROR_TEXT in body_text or SESSION_EXPIRED_TEXT in body_text:
         return Outcome.PORTAL_ERROR
     return None
 

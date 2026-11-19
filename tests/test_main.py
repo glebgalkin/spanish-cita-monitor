@@ -16,6 +16,8 @@ def test_entry_url_is_https_index_page() -> None:
         ("The requested URL was rejected. Please consult...", "", Outcome.BLOCKED),
         ("", '<script src="/TSPD/?type=18"></script>', Outcome.BLOCKED),
         ("Error Se ha producido un error en el sistema, por favor", "", Outcome.PORTAL_ERROR),
+        ("Su sesión ha caducado por permanecer demasiado tiempo inactiva.", "",
+         Outcome.PORTAL_ERROR),
         ("CITA PREVIA EXTRANJERÍA Selecciona Oficina:", "<select id='sede'>", None),
     ],
 )

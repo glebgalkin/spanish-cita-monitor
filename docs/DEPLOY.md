@@ -26,12 +26,16 @@ curl -sS -o /dev/null -m 20 -w '%{http_code} %{time_total}s\n' \
 
 1. Copy your public key on the Mac: `pbcopy < ~/.ssh/id_ed25519.pub`
 2. In the console: instance → **Edit** → **SSH Keys** → **Add item** → paste → **Save**.
-3. Connect with the username shown next to the key, then become root:
+3. Connect with the username shown next to the key, then become root. Google derives it
+   from the key's comment (your email before the `@`; it may keep the dot, e.g.
+   `first.last`).
 
 ```bash
 ssh USERNAME@SERVER_IP
 sudo -i
 ```
+
+No SSH key yet? The **SSH** button in the console opens a browser terminal instead.
 
 ## 3. Install
 
@@ -57,6 +61,10 @@ project folder on the Mac:
 scp .env telegram_chats.json USERNAME@SERVER_IP:~
 ```
 
+(In the browser terminal, use the **Upload file** button instead.) If your local `.env`
+contains `CITA_START_DELAY_MAX=0`, remove that line on the server copy, or scheduled runs
+won't wait before starting.
+
 Then on the server, as root:
 
 ```bash
@@ -74,14 +82,10 @@ cd ~/spanish-cita-monitor && CITA_START_DELAY_MAX=0 xvfb-run uv run cita-monitor
 
 ## 6. Schedule (cron, every 15 minutes)
 
-As root:
+As root, as a single line (it keeps any existing cron jobs):
 
 ```bash
-(crontab -l 2>/dev/null; cat <<'EOF'
-*/15 * * * * cd /root/spanish-cita-monitor && xvfb-run -a /root/.local/bin/uv run cita-monitor >> /root/cita-monitor.log 2>&1
-0 4 * * * find /root/spanish-cita-monitor/debug -type f -mtime +3 -delete
-EOF
-) | crontab -
+(crontab -l 2>/dev/null; echo '*/15 * * * * cd /root/spanish-cita-monitor && xvfb-run -a /root/.local/bin/uv run cita-monitor >> /root/cita-monitor.log 2>&1'; echo '0 4 * * * find /root/spanish-cita-monitor/debug -type f -mtime +3 -delete') | crontab -
 ```
 
 - Cron starts a run every 15 minutes; the script then waits a random 1–5 minutes
@@ -89,15 +93,19 @@ EOF
 - `uv` needs its full path because cron doesn't load `~/.local/bin` into `PATH`.
 - Debug snapshots (they contain applicant data) are deleted after 3 days.
 
-Check with `crontab -l` and `tail -f /root/cita-monitor.log`. Stop with `crontab -r`.
+Check with `crontab -l` and `tail -f /root/cita-monitor.log` (Ctrl+C stops watching, not
+the job). Within ~20 minutes you should see `Waiting N s before starting`, then a Telegram
+report. Stop the schedule with `crontab -r` (removes all of root's cron jobs).
 
 ## Updating
+
+As root:
 
 ```bash
 cd ~/spanish-cita-monitor && git pull && uv sync --frozen
 ```
 
-Re-run `uv run playwright install --with-deps chromium` only if the Playwright version changed.
+Cron picks up the new code on its next run; nothing needs restarting. Re-run `uv run playwright install --with-deps chromium` only if the Playwright version changed.
 
 ## Troubleshooting
 
@@ -106,5 +114,7 @@ Re-run `uv run playwright install --with-deps chromium` only if the Playwright v
 | `uv: command not found` right after installing | `source ~/.local/bin/env`, or log in again |
 | `libatomic.so.1: cannot open shared object file` | `apt install -y libatomic1` |
 | `git: command not found` | `apt install -y git` |
+| Shell shows `>` after pasting a multi-line command | Indented paste broke it; Ctrl+C and use the one-line version |
+| `Telegram ... failed after 3 attempts` | Network issue reaching Telegram; the check itself still ran (see `OUTCOME=`) |
 | `OUTCOME=UNAVAILABLE ... Page.goto: Timeout` | The server can't reach the portal; check step 1 |
 | `OUTCOME=BLOCKED` at step `province` | Firewall rejected the IP. Don't retry in a loop; wait a few hours |
