@@ -1,6 +1,8 @@
 """Command-line entry point: run one availability check and report the outcome."""
 
 import logging
+import random
+import time
 
 from pydantic import ValidationError
 
@@ -21,6 +23,11 @@ def main() -> None:
     except ValidationError as exc:
         LOGGER.error("Invalid configuration (see .env.example):\n%s", exc)
         raise SystemExit(2) from None
+
+    if settings.start_delay_max > 0:
+        delay = random.uniform(settings.start_delay_min, settings.start_delay_max)
+        LOGGER.info("Waiting %.0f s before starting", delay)
+        time.sleep(delay)
 
     LOGGER.info("Checking %s / %s / %s", settings.province, settings.office, settings.procedure)
     result = run_check(settings)

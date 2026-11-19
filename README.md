@@ -45,6 +45,10 @@ Every run then reports to all registered chats. `APPOINTMENTS_FOUND` and `FLOW_C
 notify with sound; other outcomes arrive silently. Reports never include the applicant's
 document number or name. Copy `telegram_chats.json` along with `.env` when deploying.
 
+## Deploying
+
+See [docs/DEPLOY.md](docs/DEPLOY.md) for running on a server in Spain.
+
 ## Outcomes
 
 Each run logs `OUTCOME=...` and exits with a matching code:

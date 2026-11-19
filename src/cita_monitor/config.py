@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     # session rejected by the portal's bot protection.
     step_delay_min: float = 4.0
     step_delay_max: float = 8.0
+    # Random wait before the run starts, in seconds, so scheduled runs don't hit
+    # the portal at exact clock times. 0/0 (default) = start immediately.
+    start_delay_min: float = 0.0
+    start_delay_max: float = 0.0
     # Where screenshots/HTML of unexpected pages are saved for debugging.
     debug_dir: str = "debug"
 
