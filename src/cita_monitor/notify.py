@@ -3,6 +3,7 @@
 import json
 import logging
 import socket
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -16,6 +17,9 @@ LOGGER = logging.getLogger(__name__)
 PORTAL_URL = "https://icp.administracionelectronica.gob.es/icpco/index"
 TELEGRAM_API = "https://api.telegram.org"
 MAX_DETAIL = 300
+# Seconds to wait before each retry of a failed Telegram call (3 attempts in total).
+RETRY_WAITS = (3.0, 10.0)
+MAX_RETRY_WAIT = 30.0
 
 ICONS = {
     Outcome.APPOINTMENTS_FOUND: "🟢",
@@ -69,18 +73,36 @@ def save_chats(path: str | Path, chats: dict[str, dict]) -> None:
 
 
 def telegram_call(token: str, method: str, payload: dict) -> dict | None:
-    """Call a Bot API method. Never raises; returns the `result` or None on failure."""
-    try:
-        response = httpx.post(f"{TELEGRAM_API}/bot{token}/{method}", json=payload, timeout=15)
-        data = response.json()
-    except (httpx.HTTPError, ValueError) as exc:
-        # The exception text can contain the request URL, which includes the token.
-        LOGGER.warning("Telegram %s failed: %s", method, type(exc).__name__)
-        return None
-    if not data.get("ok"):
-        LOGGER.warning("Telegram %s rejected: %s", method, data.get("description"))
-        return None
-    return data["result"]
+    """Call a Bot API method. Never raises; returns the `result` or None on failure.
+
+    Network errors, rate limits (429) and Telegram server errors (5xx) are retried;
+    other rejections (e.g. "chat not found") are not, since retrying can't fix them.
+    """
+    for attempt, wait in enumerate((*RETRY_WAITS, None), start=1):
+        try:
+            response = httpx.post(f"{TELEGRAM_API}/bot{token}/{method}", json=payload,
+                                  timeout=15)
+            data = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            # The exception text can contain the request URL, which includes the token.
+            problem = type(exc).__name__
+        else:
+            if data.get("ok"):
+                return data["result"]
+            problem = data.get("description")
+            if response.status_code != 429 and response.status_code < 500:
+                LOGGER.warning("Telegram %s rejected: %s", method, problem)
+                return None
+            retry_after = (data.get("parameters") or {}).get("retry_after")
+            if wait is not None and retry_after:
+                wait = min(float(retry_after), MAX_RETRY_WAIT)
+        if wait is None:
+            LOGGER.warning("Telegram %s failed after %d attempts: %s", method, attempt, problem)
+            return None
+        LOGGER.info("Telegram %s attempt %d failed (%s); retrying in %.0f s",
+                    method, attempt, problem, wait)
+        time.sleep(wait)
+    return None
 
 
 def send_report(result: RunResult, settings: Settings) -> int:

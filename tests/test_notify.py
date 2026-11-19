@@ -68,7 +68,8 @@ def test_sends_with_expected_loudness(settings: Settings, monkeypatch: pytest.Mo
 
 def test_network_error_does_not_raise_or_log_token(settings: Settings,
                                                    monkeypatch: pytest.MonkeyPatch,
-                                                   caplog: pytest.LogCaptureFixture) -> None:
+                                                   caplog: pytest.LogCaptureFixture,
+                                                   no_sleep: list[float]) -> None:
     def boom(url, json, timeout):
         raise httpx.ConnectError(f"failed to reach {url}")
 
@@ -82,3 +83,65 @@ def test_telegram_rejection_returns_false(settings: Settings,
     monkeypatch.setattr(notify.httpx, "post", lambda url, json, timeout: httpx.Response(
         400, json={"ok": False, "description": "Bad Request: chat not found"}))
     assert send_report(RunResult(Outcome.BLOCKED, "", "province"), settings) == 0
+
+
+@pytest.fixture
+def no_sleep(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    waits: list[float] = []
+    monkeypatch.setattr(notify.time, "sleep", waits.append)
+    return waits
+
+
+def test_retries_network_errors_then_succeeds(settings: Settings, monkeypatch: pytest.MonkeyPatch,
+                                              no_sleep: list[float]) -> None:
+    responses = iter([httpx.ConnectError("down"), httpx.ConnectError("down"),
+                      httpx.Response(200, json={"ok": True, "result": {}})])
+
+    def flaky_post(url, json, timeout):
+        item = next(responses)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    monkeypatch.setattr(notify.httpx, "post", flaky_post)
+    assert send_report(RunResult(Outcome.APPOINTMENTS_FOUND, "", "result"), settings) == 1
+    assert no_sleep == list(notify.RETRY_WAITS)
+
+
+def test_gives_up_after_all_attempts(settings: Settings, monkeypatch: pytest.MonkeyPatch,
+                                     no_sleep: list[float]) -> None:
+    calls = []
+
+    def down(url, json, timeout):
+        calls.append(url)
+        raise httpx.ConnectError("down")
+
+    monkeypatch.setattr(notify.httpx, "post", down)
+    assert send_report(RunResult(Outcome.BLOCKED, "", "province"), settings) == 0
+    assert len(calls) == len(notify.RETRY_WAITS) + 1
+
+
+def test_does_not_retry_permanent_rejection(settings: Settings, monkeypatch: pytest.MonkeyPatch,
+                                            no_sleep: list[float]) -> None:
+    calls = []
+
+    def rejected(url, json, timeout):
+        calls.append(url)
+        return httpx.Response(400, json={"ok": False, "description": "chat not found"})
+
+    monkeypatch.setattr(notify.httpx, "post", rejected)
+    assert send_report(RunResult(Outcome.BLOCKED, "", "province"), settings) == 0
+    assert len(calls) == 1
+    assert no_sleep == []
+
+
+def test_rate_limit_uses_retry_after(settings: Settings, monkeypatch: pytest.MonkeyPatch,
+                                     no_sleep: list[float]) -> None:
+    responses = iter([
+        httpx.Response(429, json={"ok": False, "description": "Too Many Requests",
+                                  "parameters": {"retry_after": 7}}),
+        httpx.Response(200, json={"ok": True, "result": {}}),
+    ])
+    monkeypatch.setattr(notify.httpx, "post", lambda url, json, timeout: next(responses))
+    assert send_report(RunResult(Outcome.BLOCKED, "", "province"), settings) == 1
+    assert no_sleep == [7.0]
