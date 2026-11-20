@@ -2,6 +2,27 @@
 
 Verified on 2026-11-19 with a Google Cloud VM in Madrid (`europe-southwest1`, Ubuntu).
 
+## Automatic setup
+
+Create an Ubuntu VM in Spain, make sure you can `ssh USER@SERVER_IP` (step 2), then from
+the project folder on the Mac:
+
+```bash
+./deploy/setup.sh USER@SERVER_IP MINUTE
+```
+
+`MINUTE` (0–59) is the minute of each hour the check runs. Give each server a different
+one so they take turns, e.g. `30` for the first and `50` for the second.
+
+It runs steps 1 and 3–6 below over SSH: checks the portal is reachable (stops if not),
+installs everything, copies `.env` (without local `CITA_START_DELAY_*` overrides) and
+`telegram_chats.json`, runs one test check, and installs the hourly cron job. Re-run it
+to update a server. Options: `--no-test` skips the test check, `--force` continues even if
+the portal looks unreachable. The SSH user needs passwordless `sudo` (the default on
+Google Cloud) or must be `root`.
+
+The manual steps below are what the script does.
+
 ## 1. Pick a server in Spain
 
 The portal drops connections from outside Spain. A Linode in Germany timed out on the
@@ -20,7 +41,27 @@ curl -sS -o /dev/null -m 20 -w '%{http_code} %{time_total}s\n' \
 |---|---|
 | `200` | Reachable. Go ahead. |
 | `000` after ~20 s | The portal is dropping this IP. Use a different server. |
-| `000` instantly, `SSL certificate problem` | Reachable. The portal sends an incomplete certificate chain that Linux `curl` rejects; Chromium handles it. |
+| `000` instantly, `SSL certificate problem` | Reachable. The portal sends an incomplete certificate chain that Linux `curl` rejects; Chromium handles it. See below. |
+
+On Linux, `curl` will most likely print:
+
+```text
+curl: (60) SSL certificate problem: unable to get local issuer certificate
+More details here: https://curl.se/docs/sslcerts.html
+```
+
+The portal leaves out the RapidSSL intermediate certificate. Fetch it (its URL is in the
+portal's own certificate) and test again with it added; you should get `200`:
+
+```bash
+curl -s http://cacerts.rapidssl.com/RapidSSLTLSRSACAG1.crt | openssl x509 -inform der -out /tmp/rapidssl.pem
+curl -sS -o /dev/null -m 20 -w '%{http_code}\n' \
+  --cacert <(cat /etc/ssl/certs/ca-certificates.crt /tmp/rapidssl.pem) \
+  https://icp.administracionelectronica.gob.es/icpco/index
+```
+
+This is safe over plain `http`: `curl` still checks that the intermediate is signed by
+DigiCert, which the system already trusts. The bot itself needs no change.
 
 ## 2. Connect with SSH (Google Cloud)
 
@@ -36,6 +77,19 @@ sudo -i
 ```
 
 No SSH key yet? The **SSH** button in the console opens a browser terminal instead.
+
+Alternatively, add the key from a shell already on the server (e.g. the browser terminal).
+On the Mac, print the key with `cat ~/.ssh/id_ed25519.pub`, then on the server, as your
+normal user (not root):
+
+```bash
+mkdir -p ~/.ssh && chmod 700 ~/.ssh
+echo 'ssh-ed25519 AAAA...paste-your-key... you@example.com' >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+```
+
+For other providers with password login, `ssh-copy-id USERNAME@SERVER_IP` from the Mac
+does the same.
 
 ## 3. Install
 
@@ -80,21 +134,25 @@ cd ~/spanish-cita-monitor && CITA_START_DELAY_MAX=0 xvfb-run uv run cita-monitor
 
 `CITA_START_DELAY_MAX=0` skips the default 1–5 minute wait for this manual run. Expect `OUTCOME=NO_APPOINTMENTS` (or another outcome) and `Telegram report sent to 1/1 chats`.
 
-## 6. Schedule (cron, every 15 minutes)
+## 6. Schedule (cron, hourly)
 
-As root, as a single line (it keeps any existing cron jobs):
+As root. This **replaces** root's whole crontab with one job:
 
 ```bash
-(crontab -l 2>/dev/null; echo '*/15 * * * * cd /root/spanish-cita-monitor && xvfb-run -a /root/.local/bin/uv run cita-monitor >> /root/cita-monitor.log 2>&1'; echo '0 4 * * * find /root/spanish-cita-monitor/debug -type f -mtime +3 -delete') | crontab -
+echo '50 * * * * cd /root/spanish-cita-monitor && xvfb-run -a /root/.local/bin/uv run cita-monitor >> /root/cita-monitor.log 2>&1' | crontab -
 ```
 
-- Cron starts a run every 15 minutes; the script then waits a random 1–5 minutes
+Every 15 minutes got the Madrid VM's IP blocked by the portal within a few hours, so
+check at most hourly from a datacenter IP.
+
+- Cron starts a run at minute 50 of every hour; the script then waits a random 1–5 minutes
   (default `CITA_START_DELAY_MIN/MAX`) before checking. Output goes to `/root/cita-monitor.log`.
 - `uv` needs its full path because cron doesn't load `~/.local/bin` into `PATH`.
-- Debug snapshots (they contain applicant data) are deleted after 3 days.
+- Debug snapshots (they contain applicant data) accumulate in `debug/`; clear them now
+  and then with `rm /root/spanish-cita-monitor/debug/*`.
 
 Check with `crontab -l` and `tail -f /root/cita-monitor.log` (Ctrl+C stops watching, not
-the job). Within ~20 minutes you should see `Waiting N s before starting`, then a Telegram
+the job). By the next :50 you should see `Waiting N s before starting`, then a Telegram
 report. Stop the schedule with `crontab -r` (removes all of root's cron jobs).
 
 ## Updating
